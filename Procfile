@@ -1,0 +1,1 @@
+worker: python cute_new.py
