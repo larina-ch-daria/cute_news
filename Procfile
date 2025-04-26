@@ -1,1 +1,1 @@
-worker: python cute_news.py
+python cute_news.py
