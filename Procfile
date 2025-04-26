@@ -1,1 +1,1 @@
-python cute_news.py
+web: python cute_news.py
