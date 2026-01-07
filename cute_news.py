@@ -31,35 +31,103 @@ def _warn_missing_env():
 _warn_missing_env()
 
 # ########## ПАРСИНГ ###########
+# def parse():
+#     try:
+#         html = requests.get('https://tvrain.tv/news/').text
+#     except requests.RequestException as e:
+#         print(f"Error fetching news: {e}")
+#         return
+
+#     soup = LxmlSoup(html)
+
+#     links = soup.find_all('a', class_='Link-module-root Link-module-isInBlockTitle')
+
+#     all_news = []
+#     for i, link in enumerate(links):
+#         # safe text extraction for different element types
+#         try:
+#             news = link.text
+#         except Exception:
+#             try:
+#                 news = link.get_text()
+#             except Exception:
+#                 news = str(link)
+#         news = (news or '').strip()
+#         if news:
+#             all_news.append(news)
+#     # overwrite the list to avoid uncontrolled duplicates
+#     with open("news_list.txt", "w", encoding='utf-8') as file:
+#         for line in all_news:
+#             file.write(line + "\n")
+#     print("The news are collected!")
+
+import requests
+import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+from collections import defaultdict
+
 def parse():
+    url = "https://meduza.io/rss/all"
+
     try:
-        html = requests.get('https://tvrain.tv/news/').text
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
     except requests.RequestException as e:
-        print(f"Error fetching news: {e}")
+        print(f"parse() failed to fetch data: \"Error fetching news: {e}\"")
         return
 
-    soup = LxmlSoup(html)
+    root = ET.fromstring(r.text)
 
-    links = soup.find_all('a', class_='Link-module-root Link-module-isInBlockTitle')
+    by_date = defaultdict(list)
 
-    all_news = []
-    for i, link in enumerate(links):
-        # safe text extraction for different element types
+    today = datetime.utcnow().date()
+    week_ago = today - timedelta(days=7)
+
+    # парсим RSS
+    for item in root.findall(".//item"):
+        title_el = item.find("title")
+        desc_el = item.find("description")
+        pub_el = item.find("pubDate")
+
+        if title_el is None or pub_el is None:
+            continue
+
+        title = title_el.text or ""
+        desc = desc_el.text or ""
+        pub = pub_el.text
+
+        # парсим дату
         try:
-            news = link.text
+            date = datetime.strptime(pub, "%a, %d %b %Y %H:%M:%S %z").date()
         except Exception:
-            try:
-                news = link.get_text()
-            except Exception:
-                news = str(link)
-        news = (news or '').strip()
-        if news:
-            all_news.append(news)
-    # overwrite the list to avoid uncontrolled duplicates
-    with open("news_list.txt", "w", encoding='utf-8') as file:
-        for line in all_news:
-            file.write(line + "\n")
-    print("The news are collected!")
+            continue
+
+        if date < week_ago:
+            continue
+
+        if len(by_date[date]) < 3:
+            # сокращаем описание
+            short_desc = desc.split(" ")[0:30]
+            short_desc = " ".join(short_desc).strip()
+            text = f"{title} — {short_desc}"
+            by_date[date].append(text)
+
+    sorted_days = sorted(by_date.keys(), reverse=True)
+
+    lines = []
+    lines.append("Сводка новостей за неделю:\n")
+
+    for day in sorted_days:
+        items = "; ".join(by_date[day])
+        lines.append(f"{day.strftime('%Y-%m-%d')}: {items}.\n")
+
+    final_text = "\n".join(lines)
+
+    with open("news_list.txt", "w", encoding="utf-8") as file:
+        file.write(final_text)
+
+    print("The weekly digest is collected!")
+
 
 
 ########## ЧАТ-GPT ###########
