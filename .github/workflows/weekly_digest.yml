@@ -1,0 +1,32 @@
+name: Weekly Digest
+
+on:
+  schedule:
+    - cron: '0 9 * * *' # runs daily at 09:00 UTC (adjust as needed)
+
+jobs:
+  run-digest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run weekly digest
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          ELEVEN_KEY: ${{ secrets.ELEVEN_KEY }}
+          TELEGRAM_KEY: ${{ secrets.TELEGRAM_KEY }}
+          admin_id: ${{ secrets.ADMIN_ID }}
+        run: |
+          python send_digest.py
