@@ -2,7 +2,7 @@ name: Weekly Digest
 
 on:
   schedule:
-    - cron: '0 9 * * *' # runs daily at 09:00 UTC (adjust as needed)
+    - cron: '0 9 * * 1' # runs every Monday at 09:00 UTC (adjust as needed)
 
 jobs:
   run-digest:
