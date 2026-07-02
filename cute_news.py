@@ -1,16 +1,3 @@
-"""
-Ласковые новостюшки — Telegram-бот.
-
-Пайплайн: RSS Meduza  ->  OpenAI (переписать «ласково»)  ->  ElevenLabs (TTS)
-          ->  замедление речи (audiostretchy)  ->  рассылка подписчикам.
-
-Важно про импорт: раньше объект Bot() и проверка ключей создавались на уровне
-модуля, поэтому `from cute_news import parse` (в test_parse.py / send_digest.py)
-падал с TokenValidationError, если не было переменных окружения. Теперь всё,
-что требует ключей, живёт внутри функций и main(). Импортировать модуль можно
-без .env.
-"""
-
 import os
 import sys
 import time
@@ -29,29 +16,44 @@ import users as us
 
 load_dotenv()
 
+log = logging.getLogger(__name__)
+
 # ------------------------- КОНФИГ -------------------------
 OPENAI_KEY = os.getenv("OPENAI_KEY")
 ELEVEN_KEY = os.getenv("ELEVEN_KEY")
 TELEGRAM_KEY = os.getenv("TELEGRAM_KEY")
 ADMIN_ID = os.getenv("admin_id")
 
-# Имя модели вынесено в конфиг: gpt-3.5-turbo выключают 23.10.2026,
-# а прокси мог убрать её и раньше. Меняется без правки кода.
-# Через `or`, а не второй аргумент getenv: незаданная GitHub-переменная
-# приходит как ПУСТАЯ строка, и getenv(..., default) её бы не подменил.
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.proxyapi.ru/openai/v1"
 
 RSS_URL = os.getenv("RSS_URL") or "https://meduza.io/rss/all"
-# Дефолт — premade-голос Rachel: доступен на free-тарифе (library-голоса — нет).
 VOICE_ID = os.getenv("ELEVEN_VOICE_ID") or "21m00Tcm4TlvDq8ikWAM"
+
+
+def _env_float(name: str, default: float) -> float:
+    v = os.getenv(name)
+    if v in (None, ""):
+        return default
+    try:
+        return float(v)
+    except ValueError:
+        log.warning("Переменная %s='%s' не число, беру %s", name, v, default)
+        return default
+
+
+# Настройки голоса — крутятся из GitHub Variables без правки кода.
+# stability: ниже = живее/эмоциональнее интонации; style: выше = выразительнее.
+ELEVEN_STABILITY = _env_float("ELEVEN_STABILITY", 0.3)
+ELEVEN_SIMILARITY = _env_float("ELEVEN_SIMILARITY", 0.53)
+ELEVEN_STYLE = _env_float("ELEVEN_STYLE", 0.15)
+ELEVEN_SPEAKER_BOOST = (os.getenv("ELEVEN_SPEAKER_BOOST") or "false").lower() in ("1", "true", "yes", "on")
 
 NEWS_LIST_FILE = "news_list.txt"
 GPT_NEWS_FILE = "gpt_news.txt"
-RAW_WAV = "news_raw.wav"      # сырой PCM от ElevenLabs, обёрнутый в WAV
-FINAL_WAV = "news.wav"        # замедленный результат, его и отправляем
+RAW_WAV = "news_raw.wav"      
+FINAL_WAV = "news.wav"       
 
-log = logging.getLogger(__name__)
 
 
 def _require(name: str, value: str) -> str:
@@ -79,7 +81,6 @@ def parse() -> bool:
         log.error("parse(): не удалось получить RSS: %s", e)
         return False
 
-    # r.content (байты), а не r.text — корректно с XML-декларацией кодировки
     try:
         root = ET.fromstring(r.content)
     except ET.ParseError as e:
@@ -114,7 +115,6 @@ def parse() -> bool:
             by_date[date].append(f"{title} — {short_desc}")
 
     if not by_date:
-        # RSS открылся, но свежих новостей за неделю нет — не перезаписываем старьё
         log.error("parse(): в ленте нет новостей за последнюю неделю.")
         return False
 
@@ -137,7 +137,7 @@ def getting_news() -> str:
         log.error("getting_news(): свежих новостей нет, генерация отменена.")
         return ""
 
-    from openai import OpenAI  # локальный импорт: не тянем SDK, если просто читаем модуль
+    from openai import OpenAI 
 
     client = OpenAI(
         api_key=_require("OPENAI_KEY", OPENAI_KEY),
@@ -190,10 +190,10 @@ def text_to_speech_wav(text: str) -> str | None:
             text=text,
             model_id="eleven_multilingual_v2",
             voice_settings=VoiceSettings(
-                stability=0.3,
-                similarity_boost=0.53,
-                style=0.15,
-                use_speaker_boost=False,
+                stability=ELEVEN_STABILITY,
+                similarity_boost=ELEVEN_SIMILARITY,
+                style=ELEVEN_STYLE,
+                use_speaker_boost=ELEVEN_SPEAKER_BOOST,
             ),
         )
         try:
