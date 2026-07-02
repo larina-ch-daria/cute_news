@@ -1,0 +1,39 @@
+name: weekly-digest
+
+# Еженедельная рассылка "Ласковых новостюшек" без сервера.
+# Запускает send_digest.py по расписанию и по кнопке (workflow_dispatch).
+
+on:
+  schedule:
+    # cron в GitHub Actions — в UTC. Пн 20:00 МСК = Пн 17:00 UTC.
+    - cron: "0 17 * * 1"
+  workflow_dispatch: {}   # ручной запуск из вкладки Actions
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Send digest
+        env:
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          ELEVEN_KEY: ${{ secrets.ELEVEN_KEY }}
+          TELEGRAM_KEY: ${{ secrets.TELEGRAM_KEY }}
+          admin_id: ${{ secrets.ADMIN_ID }}
+          # Список подписчиков для CI (id через запятую), т.к. user_list.txt не в репозитории:
+          SUBSCRIBERS: ${{ secrets.SUBSCRIBERS }}
+          # Необязательно — переопределить модель/прокси, не трогая код:
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+        run: python send_digest.py

@@ -1,3 +1,14 @@
 .env
 __pycache__/
 *.pyc
+
+# личные данные — не коммитим
+user_list.txt
+
+# сгенерированные артефакты
+news_list.txt
+gpt_news.txt
+news.mp3
+news.wav
+news_raw.wav
+output.wav

@@ -1,69 +1,76 @@
 #!/usr/bin/env python3
-from dotenv import load_dotenv
+"""
+Разовая рассылка недельного дайджеста (для cron / GitHub Actions).
+
+Генерирует свежее аудио и рассылает всем подписчикам через Telegram Bot API.
+Список подписчиков берётся из user_list.txt, а если файла нет (например, в CI) —
+из переменной окружения SUBSCRIBERS (id через запятую или перевод строки).
+"""
 import os
-import requests
 import time
 from datetime import datetime
 
-load_dotenv()
+import requests
+from dotenv import load_dotenv
 
-from cute_news import parse, create_final_news
+from cute_news import create_final_news
 import users as us
 
-OPENAI_KEY = os.getenv('OPENAI_KEY')
-ELEVEN_KEY = os.getenv('ELEVEN_KEY')
-TELEGRAM_KEY = os.getenv('TELEGRAM_KEY')
-ADMIN_ID = os.getenv('admin_id')
+load_dotenv()
+
+TELEGRAM_KEY = os.getenv("TELEGRAM_KEY")
+
+
+def load_subscribers() -> list[str]:
+    if os.path.exists(us.users):
+        with open(us.users, encoding="utf-8") as f:
+            return [ln.strip() for ln in f if ln.strip()]
+    raw = os.getenv("SUBSCRIBERS", "")
+    return [x.strip() for x in raw.replace(",", "\n").splitlines() if x.strip()]
 
 
 def main():
     if not TELEGRAM_KEY:
-        print('Missing TELEGRAM_KEY environment variable')
+        print("Не задана переменная окружения TELEGRAM_KEY")
         return
 
-    # generate news and audio
-    parse()
+    subscribers = load_subscribers()
+    if not subscribers:
+        print("Список подписчиков пуст (нет ни user_list.txt, ни SUBSCRIBERS)")
+        return
+
+    # create_final_news внутри сам парсит новости и озвучивает — отдельный parse() не нужен
     audio_path = create_final_news()
     if not audio_path or not os.path.exists(audio_path):
-        print('No audio generated, aborting')
+        print("Аудио не создано, рассылка отменена")
         return
 
-    # read subscribers
-    users_file = us.users
-    if not os.path.exists(users_file):
-        print(f'Users file not found: {users_file}')
-        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_KEY}/sendAudio"
+    title = f"Daily news {datetime.now().strftime('%d.%m.%Y')}"
 
-    with open(users_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            uid = line.strip()
-            if not uid:
-                continue
-            try:
-                chat_id = int(uid)
-            except Exception:
-                print(f'Skipping invalid user id: {uid}')
-                continue
-
-            url = f'https://api.telegram.org/bot{TELEGRAM_KEY}/sendAudio'
-            data = {
-                'chat_id': chat_id,
-                'title': f'Daily news {datetime.now().strftime("%d.%m.%Y")}',
-                'performer': 'Ласковые новостюшки'
-            }
-            try:
-                with open(audio_path, 'rb') as audio_file:
-                    files = {'audio': audio_file}
-                    resp = requests.post(url, data=data, files=files, timeout=120)
-                if resp.ok:
-                    print(f'Sent audio to {chat_id}')
-                else:
-                    print(f'Failed to send to {chat_id}: {resp.status_code} {resp.text}')
-            except Exception as e:
-                print(f'Error sending to {chat_id}: {e}')
-
-            time.sleep(1)
+    for uid in subscribers:
+        try:
+            chat_id = int(uid)
+        except ValueError:
+            print(f"Пропускаю некорректный id: {uid}")
+            continue
+        try:
+            with open(audio_path, "rb") as audio_file:
+                resp = requests.post(
+                    url,
+                    data={"chat_id": chat_id, "title": title,
+                          "performer": "Ласковые новостюшки"},
+                    files={"audio": audio_file},
+                    timeout=120,
+                )
+            if resp.ok:
+                print(f"Отправлено: {chat_id}")
+            else:
+                print(f"Не удалось {chat_id}: {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"Ошибка отправки {chat_id}: {e}")
+        time.sleep(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
