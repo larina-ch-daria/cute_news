@@ -7,6 +7,7 @@
 из переменной окружения SUBSCRIBERS (id через запятую или перевод строки).
 """
 import os
+import sys
 import time
 from datetime import datetime
 
@@ -32,18 +33,18 @@ def load_subscribers() -> list[str]:
 def main():
     if not TELEGRAM_KEY:
         print("Не задана переменная окружения TELEGRAM_KEY")
-        return
+        sys.exit(1)
 
     subscribers = load_subscribers()
     if not subscribers:
         print("Список подписчиков пуст (нет ни user_list.txt, ни SUBSCRIBERS)")
-        return
+        sys.exit(1)
 
     # create_final_news внутри сам парсит новости и озвучивает — отдельный parse() не нужен
     audio_path = create_final_news()
     if not audio_path or not os.path.exists(audio_path):
-        print("Аудио не создано, рассылка отменена")
-        return
+        print("Аудио не создано, рассылка отменена (RSS/LLM/ElevenLabs недоступны?)")
+        sys.exit(1)
 
     url = f"https://api.telegram.org/bot{TELEGRAM_KEY}/sendAudio"
     title = f"Daily news {datetime.now().strftime('%d.%m.%Y')}"

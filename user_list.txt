@@ -1,2 +1,0 @@
-# По одному Telegram chat id в строке. Скопируй в user_list.txt (он в .gitignore).
-123456789

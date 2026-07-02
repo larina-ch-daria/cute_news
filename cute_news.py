@@ -62,21 +62,26 @@ def _require(name: str, value: str) -> str:
 
 
 # ------------------------- ПАРСИНГ (RSS Meduza) -------------------------
-def parse():
-    """Собирает недельную сводку в news_list.txt (до 3 новостей на день)."""
+def parse() -> bool:
+    """Собирает недельную сводку в news_list.txt (до 3 новостей на день).
+
+    Возвращает True при успехе. При недоступности RSS (например, «Медуза»
+    заблокирована в РФ и запрос с локального IP не проходит) возвращает False
+    и НЕ трогает news_list.txt — чтобы наверх не ушли протухшие старые новости.
+    """
     try:
         r = requests.get(RSS_URL, timeout=10)
         r.raise_for_status()
     except requests.RequestException as e:
         log.error("parse(): не удалось получить RSS: %s", e)
-        return
+        return False
 
     # r.content (байты), а не r.text — корректно с XML-декларацией кодировки
     try:
         root = ET.fromstring(r.content)
     except ET.ParseError as e:
         log.error("parse(): не удалось разобрать XML: %s", e)
-        return
+        return False
 
     by_date = defaultdict(list)
     today = datetime.now(timezone.utc).date()
@@ -105,6 +110,11 @@ def parse():
             short_desc = " ".join(desc.split(" ")[:30]).strip()
             by_date[date].append(f"{title} — {short_desc}")
 
+    if not by_date:
+        # RSS открылся, но свежих новостей за неделю нет — не перезаписываем старьё
+        log.error("parse(): в ленте нет новостей за последнюю неделю.")
+        return False
+
     lines = ["Сводка новостей за неделю:\n"]
     for day in sorted(by_date.keys(), reverse=True):
         lines.append(f"{day.strftime('%Y-%m-%d')}: {'; '.join(by_date[day])}.\n")
@@ -113,12 +123,16 @@ def parse():
         f.write("\n".join(lines))
 
     log.info("Недельная сводка собрана (%d дней).", len(by_date))
+    return True
 
 
 # ------------------------- ChatGPT -------------------------
 def getting_news() -> str:
     """Парсит новости и переписывает их «ласково» через OpenAI-совместимый API."""
-    parse()
+    if not parse():
+        # RSS недоступен/пуст — не кормим LLM старым файлом, честно выходим
+        log.error("getting_news(): свежих новостей нет, генерация отменена.")
+        return ""
 
     from openai import OpenAI  # локальный импорт: не тянем SDK, если просто читаем модуль
 
