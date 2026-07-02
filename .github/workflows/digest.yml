@@ -36,4 +36,7 @@ jobs:
           # Необязательно — переопределить модель/прокси, не трогая код:
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          # Голос ElevenLabs (на free-тарифе — только premade) и источник новостей:
+          ELEVEN_VOICE_ID: ${{ vars.ELEVEN_VOICE_ID }}
+          RSS_URL: ${{ vars.RSS_URL }}
         run: python send_digest.py

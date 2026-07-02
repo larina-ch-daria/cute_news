@@ -37,11 +37,14 @@ ADMIN_ID = os.getenv("admin_id")
 
 # Имя модели вынесено в конфиг: gpt-3.5-turbo выключают 23.10.2026,
 # а прокси мог убрать её и раньше. Меняется без правки кода.
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.proxyapi.ru/openai/v1")
+# Через `or`, а не второй аргумент getenv: незаданная GitHub-переменная
+# приходит как ПУСТАЯ строка, и getenv(..., default) её бы не подменил.
+OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.proxyapi.ru/openai/v1"
 
-RSS_URL = os.getenv("RSS_URL", "https://meduza.io/rss/all")
-VOICE_ID = os.getenv("ELEVEN_VOICE_ID", "blxHPCXhpXOsc7mCKk0P")
+RSS_URL = os.getenv("RSS_URL") or "https://meduza.io/rss/all"
+# Дефолт — premade-голос Rachel: доступен на free-тарифе (library-голоса — нет).
+VOICE_ID = os.getenv("ELEVEN_VOICE_ID") or "21m00Tcm4TlvDq8ikWAM"
 
 NEWS_LIST_FILE = "news_list.txt"
 GPT_NEWS_FILE = "gpt_news.txt"
@@ -176,6 +179,10 @@ def text_to_speech_wav(text: str) -> str | None:
     from elevenlabs import VoiceSettings
 
     client = ElevenLabs(api_key=_require("ELEVEN_KEY", ELEVEN_KEY))
+    # convert() у ElevenLabs ленивый: сам HTTP-запрос уходит при переборе ответа,
+    # поэтому и вызов, и перебор держим в одном try — иначе ошибка API (402, лимит
+    # символов и т.п.) вылетит сырым трейсбеком мимо обработчика.
+    pcm = bytearray()
     try:
         response = client.text_to_speech.convert(
             voice_id=VOICE_ID,
@@ -189,19 +196,16 @@ def text_to_speech_wav(text: str) -> str | None:
                 use_speaker_boost=False,
             ),
         )
+        try:
+            for chunk in response:
+                if chunk:
+                    pcm.extend(chunk)
+        except TypeError:
+            if response:
+                pcm.extend(response)
     except Exception as e:
         log.error("Ошибка ElevenLabs API: %s", e)
         return None
-
-    # ответ — поток чанков (или один bytes-объект); собираем в один буфер
-    pcm = bytearray()
-    try:
-        for chunk in response:
-            if chunk:
-                pcm.extend(chunk)
-    except TypeError:
-        if response:
-            pcm.extend(response)
 
     if not pcm:
         log.error("ElevenLabs вернул пустой звук.")
