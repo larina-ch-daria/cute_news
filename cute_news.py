@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import time
 import wave
 import asyncio
@@ -24,14 +25,20 @@ ELEVEN_KEY = os.getenv("ELEVEN_KEY")
 TELEGRAM_KEY = os.getenv("TELEGRAM_KEY")
 ADMIN_ID = os.getenv("admin_id")
 
+# Имя модели вынесено в конфиг: gpt-3.5-turbo выключают 23.10.2026,
+# а прокси мог убрать её и раньше. Меняется без правки кода.
+# Через `or`, а не второй аргумент getenv: незаданная GitHub-переменная
+# приходит как ПУСТАЯ строка, и getenv(..., default) её бы не подменил.
 OPENAI_MODEL = os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL") or "https://api.proxyapi.ru/openai/v1"
 
 RSS_URL = os.getenv("RSS_URL") or "https://meduza.io/rss/all"
+# Дефолт — premade-голос Rachel: доступен на free-тарифе (library-голоса — нет).
 VOICE_ID = os.getenv("ELEVEN_VOICE_ID") or "21m00Tcm4TlvDq8ikWAM"
 
 
 def _env_float(name: str, default: float) -> float:
+    """Читает float из окружения; пустое/кривое значение -> default."""
     v = os.getenv(name)
     if v in (None, ""):
         return default
@@ -49,10 +56,13 @@ ELEVEN_SIMILARITY = _env_float("ELEVEN_SIMILARITY", 0.53)
 ELEVEN_STYLE = _env_float("ELEVEN_STYLE", 0.15)
 ELEVEN_SPEAKER_BOOST = (os.getenv("ELEVEN_SPEAKER_BOOST") or "false").lower() in ("1", "true", "yes", "on")
 
+# Замедление речи: 1.2 = как было (речь на 20% длиннее/медленнее); 1.0 = выключено.
+STRETCH_RATIO = _env_float("STRETCH_RATIO", 1.2)
+
 NEWS_LIST_FILE = "news_list.txt"
 GPT_NEWS_FILE = "gpt_news.txt"
-RAW_WAV = "news_raw.wav"      
-FINAL_WAV = "news.wav"       
+RAW_WAV = "news_raw.wav"      # сырой PCM от ElevenLabs, обёрнутый в WAV
+FINAL_WAV = "news.wav"        # замедленный результат, его и отправляем
 
 
 
@@ -81,6 +91,7 @@ def parse() -> bool:
         log.error("parse(): не удалось получить RSS: %s", e)
         return False
 
+    # r.content (байты), а не r.text — корректно с XML-декларацией кодировки
     try:
         root = ET.fromstring(r.content)
     except ET.ParseError as e:
@@ -115,6 +126,7 @@ def parse() -> bool:
             by_date[date].append(f"{title} — {short_desc}")
 
     if not by_date:
+        # RSS открылся, но свежих новостей за неделю нет — не перезаписываем старьё
         log.error("parse(): в ленте нет новостей за последнюю неделю.")
         return False
 
@@ -130,6 +142,25 @@ def parse() -> bool:
 
 
 # ------------------------- ChatGPT -------------------------
+def _extract_broadcast(text: str) -> str:
+    """Достаёт из ответа модели только реплику эфира, отбрасывая рассуждения.
+
+    Не полагаемся на послушность модели: чистим детерминированно.
+    1) вырезаем <think>…</think> (reasoning-модели рассуждают вслух);
+    2) если эфир обёрнут в [ЭФИР]…[/ЭФИР] — берём то, что между метками;
+    3) иначе отрезаем всё до предписанной первой фразы «Приветик…»;
+    4) если зацепок нет — возвращаем как есть.
+    """
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    m = re.search(r"\[ЭФИР\](.*?)\[/ЭФИР\]", text, flags=re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    idx = text.find("Приветик")
+    if idx != -1:
+        return text[idx:].strip()
+    return text.strip()
+
+
 def getting_news() -> str:
     """Парсит новости и переписывает их «ласково» через OpenAI-совместимый API."""
     if not parse():
@@ -137,7 +168,7 @@ def getting_news() -> str:
         log.error("getting_news(): свежих новостей нет, генерация отменена.")
         return ""
 
-    from openai import OpenAI 
+    from openai import OpenAI  # локальный импорт: не тянем SDK, если просто читаем модуль
 
     client = OpenAI(
         api_key=_require("OPENAI_KEY", OPENAI_KEY),
@@ -155,7 +186,7 @@ def getting_news() -> str:
         log.error("Ошибка OpenAI API: %s", e)
         return ""
 
-    final_news = response.choices[0].message.content or ""
+    final_news = _extract_broadcast(response.choices[0].message.content or "")
     with open(GPT_NEWS_FILE, "w", encoding="utf-8") as f:
         f.write(final_news)
     return final_news
@@ -232,9 +263,13 @@ def create_final_news() -> str | None:
     if not raw_path or not os.path.exists(raw_path):
         return None
 
+    # STRETCH_RATIO <= 1.0 — замедление выключено, шлём исходный WAV
+    if STRETCH_RATIO <= 1.0:
+        return raw_path
+
     try:
         from audiostretchy.stretch import stretch_audio
-        stretch_audio(raw_path, FINAL_WAV, ratio=1.2)
+        stretch_audio(raw_path, FINAL_WAV, ratio=STRETCH_RATIO)
         return FINAL_WAV
     except Exception as e:
         # замедление — не критично: если упало, отдаём неизменённый WAV

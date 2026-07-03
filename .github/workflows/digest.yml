@@ -1,8 +1,13 @@
 name: weekly-digest
+
+# Еженедельная рассылка "Ласковых новостюшек" без сервера.
+# Запускает send_digest.py по расписанию и по кнопке (workflow_dispatch).
+
 on:
   schedule:
+    # cron в GitHub Actions — в UTC. Пн 20:00 МСК = Пн 17:00 UTC.
     - cron: "0 17 * * 1"
-  workflow_dispatch: {}   
+  workflow_dispatch: {}   # ручной запуск из вкладки Actions
 
 jobs:
   digest:
@@ -26,13 +31,21 @@ jobs:
           ELEVEN_KEY: ${{ secrets.ELEVEN_KEY }}
           TELEGRAM_KEY: ${{ secrets.TELEGRAM_KEY }}
           admin_id: ${{ secrets.ADMIN_ID }}
+          # Список подписчиков для CI (id через запятую), т.к. user_list.txt не в репозитории:
           SUBSCRIBERS: ${{ secrets.SUBSCRIBERS }}
+          # Необязательно — переопределить модель/прокси, не трогая код:
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          # Голос ElevenLabs (на free-тарифе — только premade) и источник новостей:
           ELEVEN_VOICE_ID: ${{ vars.ELEVEN_VOICE_ID }}
           RSS_URL: ${{ vars.RSS_URL }}
+          # Интонация голоса — крутится отсюда без правки кода:
           ELEVEN_STABILITY: ${{ vars.ELEVEN_STABILITY }}
           ELEVEN_SIMILARITY: ${{ vars.ELEVEN_SIMILARITY }}
           ELEVEN_STYLE: ${{ vars.ELEVEN_STYLE }}
           ELEVEN_SPEAKER_BOOST: ${{ vars.ELEVEN_SPEAKER_BOOST }}
+          # Замедление речи: 1.0 = выключено, 1.2 = по умолчанию:
+          STRETCH_RATIO: ${{ vars.STRETCH_RATIO }}
+          # Пусто = случайный приём объяснения каждый выпуск; задать = зафиксировать:
+          NEWS_STYLE: ${{ vars.NEWS_STYLE }}
         run: python send_digest.py
